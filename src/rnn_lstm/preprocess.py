@@ -33,8 +33,8 @@ def auto_split(captions_dict, n_train=6000, n_val=1000, n_test=1000, seed=42):
     rng = np.random.default_rng(seed)
     rng.shuffle(all_images)
     train = all_images[:n_train]
-    val   = all_images[n_train : n_train + n_val]
-    test  = all_images[n_train + n_val : n_train + n_val + n_test]
+    val = all_images[n_train : n_train + n_val]
+    test = all_images[n_train + n_val : n_train + n_val + n_test]
     return train, val, test
 
 
@@ -67,10 +67,10 @@ def load_vocab(path):
 
 
 def _tokenize_one(caption, word2idx, max_len):
-    pad_id   = word2idx["<pad>"]
+    pad_id = word2idx["<pad>"]
     start_id = word2idx["<start>"]
-    end_id   = word2idx["<end>"]
-    unk_id   = word2idx["<unk>"]
+    end_id = word2idx["<end>"]
+    unk_id = word2idx["<unk>"]
 
     words = clean_text(caption).split()[: max_len - 2]  
     tokens = [start_id] + [word2idx.get(w, unk_id) for w in words] + [end_id]

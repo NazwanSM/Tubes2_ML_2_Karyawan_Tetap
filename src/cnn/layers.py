@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-#  Fungsi Aktivasi
+# Fungsi Aktivasi
 def relu(x):
     return np.maximum(0, x)
 
@@ -33,7 +33,7 @@ def get_activation(name):
     return fn
 
 
-#  Fungsi Helper
+# Fungsi Helper
 def _same_pad(H, W, kH, kW, stride_h, stride_w):
     out_h = math.ceil(H / stride_h)
     out_w = math.ceil(W / stride_w)
@@ -42,7 +42,7 @@ def _same_pad(H, W, kH, kW, stride_h, stride_w):
     return pad_h // 2, pad_h - pad_h // 2, pad_w // 2, pad_w - pad_w // 2
 
 
-#  Layer Implementations  
+# Layer Implementations
 class Conv2DLayer:
     def __init__(self, kernel, bias, strides=(1, 1), padding="valid", activation=None):
         self.kernel = np.asarray(kernel, dtype=np.float32)
@@ -54,32 +54,38 @@ class Conv2DLayer:
 
     def forward(self, x):
         x = np.ascontiguousarray(x, dtype=np.float32)
-        H, W, C = x.shape
+        single = x.ndim == 3
+        if single:
+            x = x[np.newaxis] # (H,W,C) menjadi (1,H,W,C)
+
+        N, H, W, C = x.shape
 
         if self.padding == "same":
             pt, pb, pl, pr = _same_pad(H, W, self.kH, self.kW, self.stride_h, self.stride_w)
-            x = np.pad(x, ((pt, pb), (pl, pr), (0, 0)))
-            H, W = x.shape[:2]
+            x = np.pad(x, ((0, 0), (pt, pb), (pl, pr), (0, 0)))
+            N, H, W = x.shape[:3]
 
         out_h = (H - self.kH) // self.stride_h + 1
         out_w = (W - self.kW) // self.stride_w + 1
         C_out = self.kernel.shape[-1]
 
-        patch_shape   = (out_h, out_w, self.kH, self.kW, C)
+        patch_shape = (N, out_h, out_w, self.kH, self.kW, C)
         patch_strides = (
-            x.strides[0] * self.stride_h,
-            x.strides[1] * self.stride_w,
             x.strides[0],
+            x.strides[1] * self.stride_h,
+            x.strides[2] * self.stride_w,
             x.strides[1],
             x.strides[2],
+            x.strides[3],
         )
         patches = np.lib.stride_tricks.as_strided(x, shape=patch_shape, strides=patch_strides)
 
-        cols   = patches.reshape(out_h * out_w, -1)       # (out_h*out_w, kH*kW*C_in)
-        W_flat = self.kernel.reshape(-1, C_out)            # (kH*kW*C_in, C_out)
-        out    = (cols @ W_flat + self.bias).reshape(out_h, out_w, C_out)
+        cols = patches.reshape(N, out_h * out_w, -1) # (N, out_h*out_w, kH*kW*C)
+        W_flat = self.kernel.reshape(-1, C_out) # (kH*kW*C, C_out)
+        out = (cols @ W_flat + self.bias).reshape(N, out_h, out_w, C_out)
 
-        return self.activation(out) if self.activation else out
+        out = self.activation(out) if self.activation else out
+        return out[0] if single else out
 
 
 class LocallyConnected2DLayer:
@@ -94,29 +100,30 @@ class LocallyConnected2DLayer:
 
     def forward(self, x):
         x = np.ascontiguousarray(x, dtype=np.float32)
-        H, W, C = x.shape
+        single = x.ndim == 3
+        if single:
+            x = x[np.newaxis]
+
+        N, H, W, C = x.shape
+        sh, sw = self.stride_h, self.stride_w
 
         if self.padding == "same":
-            pt, pb, pl, pr = _same_pad(H, W, self.kH, self.kW, self.stride_h, self.stride_w)
-            x = np.pad(x, ((pt, pb), (pl, pr), (0, 0)))
-            H, W = x.shape[:2]
+            pt, pb, pl, pr = _same_pad(H, W, self.kH, self.kW, sh, sw)
+            x = np.pad(x, ((0, 0), (pt, pb), (pl, pr), (0, 0)))
+            N, H, W = x.shape[:3]
 
-        out_h = (H - self.kH) // self.stride_h + 1
-        out_w = (W - self.kW) // self.stride_w + 1
+        out_h = (H - self.kH) // sh + 1
+        out_w = (W - self.kW) // sw + 1
         C_out = self.kernel.shape[-1]
-        out   = np.zeros((out_h, out_w, C_out), dtype=np.float32)
+        out = np.zeros((N, out_h, out_w, C_out), dtype=np.float32)
 
         for i in range(out_h):
             for j in range(out_w):
-                patch = x[
-                    i * self.stride_h : i * self.stride_h + self.kH,
-                    j * self.stride_w : j * self.stride_w + self.kW,
-                    :,
-                ]
-                # kernel[i, j] shape: (kH*kW*C_in, C_out)
-                out[i, j] = patch.flatten() @ self.kernel[i, j] + self.bias[i, j]
+                patch = x[:, i*sh:i*sh+self.kH, j*sw:j*sw+self.kW, :]  # (N,kH,kW,C)
+                out[:, i, j] = patch.reshape(N, -1) @ self.kernel[i, j] + self.bias[i, j]
 
-        return self.activation(out) if self.activation else out
+        out = self.activation(out) if self.activation else out
+        return out[0] if single else out
 
 
 class MaxPooling2DLayer:
@@ -126,20 +133,26 @@ class MaxPooling2DLayer:
 
     def forward(self, x):
         x = np.ascontiguousarray(x, dtype=np.float32)
-        H, W, C = x.shape
+        single = x.ndim == 3
+        if single:
+            x = x[np.newaxis]
+
+        N, H, W, C = x.shape
         out_h = (H - self.pH) // self.stride_h + 1
         out_w = (W - self.pW) // self.stride_w + 1
 
-        win_shape   = (out_h, out_w, self.pH, self.pW, C)
+        win_shape = (N, out_h, out_w, self.pH, self.pW, C)
         win_strides = (
-            x.strides[0] * self.stride_h,
-            x.strides[1] * self.stride_w,
             x.strides[0],
+            x.strides[1] * self.stride_h,
+            x.strides[2] * self.stride_w,
             x.strides[1],
             x.strides[2],
+            x.strides[3],
         )
         windows = np.lib.stride_tricks.as_strided(x, shape=win_shape, strides=win_strides)
-        return windows.max(axis=(2, 3))   # (out_h, out_w, C)
+        out = windows.max(axis=(3, 4)) # (N, out_h, out_w, C)
+        return out[0] if single else out
 
 
 class AvgPooling2DLayer:
@@ -149,40 +162,51 @@ class AvgPooling2DLayer:
 
     def forward(self, x):
         x = np.ascontiguousarray(x, dtype=np.float32)
-        H, W, C = x.shape
+        single = x.ndim == 3
+        if single:
+            x = x[np.newaxis]
+
+        N, H, W, C = x.shape
         out_h = (H - self.pH) // self.stride_h + 1
         out_w = (W - self.pW) // self.stride_w + 1
 
-        win_shape   = (out_h, out_w, self.pH, self.pW, C)
+        win_shape = (N, out_h, out_w, self.pH, self.pW, C)
         win_strides = (
-            x.strides[0] * self.stride_h,
-            x.strides[1] * self.stride_w,
             x.strides[0],
+            x.strides[1] * self.stride_h,
+            x.strides[2] * self.stride_w,
             x.strides[1],
             x.strides[2],
+            x.strides[3],
         )
         windows = np.lib.stride_tricks.as_strided(x, shape=win_shape, strides=win_strides)
-        return windows.mean(axis=(2, 3))  # (out_h, out_w, C)
+        out = windows.mean(axis=(3, 4)) # (N, out_h, out_w, C)
+        return out[0] if single else out
 
 
 class GlobalMaxPooling2DLayer:
     def forward(self, x):
-        return np.max(x, axis=(0, 1))   # (H, W, C) -> (C,)
+        if x.ndim == 3:
+            return np.max(x, axis=(0, 1)) # (H,W,C) menjadi (C,)
+        return np.max(x, axis=(1, 2)) # (N,H,W,C) menjadi (N,C)
 
 
 class GlobalAvgPooling2DLayer:
     def forward(self, x):
-        return np.mean(x, axis=(0, 1))  # (H, W, C) -> (C,)
+        if x.ndim == 3:
+            return np.mean(x, axis=(0, 1)) # (H,W,C) menjadi (C,)
+        return np.mean(x, axis=(1, 2)) # (N,H,W,C) menjadi (N,C)
 
 
 class FlattenLayer:
     def forward(self, x):
-        return x.flatten(order="C")
+        if x.ndim == 3:
+            return x.flatten(order="C") # single menjadi (features,)
+        return x.reshape(x.shape[0], -1) # batch  menjadi (N, features)
 
 
 class DenseLayer:
     def __init__(self, kernel, bias, activation=None):
-        # kernel dari Keras: (in_dim, out_dim)
         self.kernel     = np.asarray(kernel, dtype=np.float32)
         self.bias       = np.asarray(bias,   dtype=np.float32)
         self.activation = get_activation(activation)
@@ -195,10 +219,10 @@ class DenseLayer:
 class BatchNormLayer:
     def __init__(self, gamma, beta, moving_mean, moving_var, epsilon=1e-3):
         self.gamma = np.asarray(gamma,       dtype=np.float32)
-        self.beta  = np.asarray(beta,        dtype=np.float32)
-        self.mean  = np.asarray(moving_mean, dtype=np.float32)
-        self.var   = np.asarray(moving_var,  dtype=np.float32)
-        self.eps   = epsilon
+        self.beta = np.asarray(beta,        dtype=np.float32)
+        self.mean = np.asarray(moving_mean, dtype=np.float32)
+        self.var = np.asarray(moving_var,  dtype=np.float32)
+        self.eps = epsilon
 
     def forward(self, x):
         x_norm = (x - self.mean) / np.sqrt(self.var + self.eps)

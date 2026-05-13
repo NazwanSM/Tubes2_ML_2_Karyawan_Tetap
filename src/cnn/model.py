@@ -22,16 +22,16 @@ def _convert_layer(keras_layer):
     if layer_type in _SKIP_LAYERS:
         return None
 
-    cfg     = keras_layer.get_config()
+    cfg = keras_layer.get_config()
     weights = keras_layer.get_weights()
 
     if layer_type == "Conv2D":
         kernel, bias = weights
         return Conv2DLayer(
-            kernel     = kernel,
-            bias       = bias,
-            strides    = tuple(cfg["strides"]),
-            padding    = cfg["padding"],
+            kernel = kernel,
+            bias = bias,
+            strides = tuple(cfg["strides"]),
+            padding = cfg["padding"],
             activation = cfg["activation"],
         )
 
@@ -41,12 +41,12 @@ def _convert_layer(keras_layer):
         kernel = kernel.reshape(out_h, out_w, -1, C_out)
         bias   = bias.reshape(out_h, out_w, C_out)
         return LocallyConnected2DLayer(
-            kernel      = kernel,
-            bias        = bias,
+            kernel = kernel,
+            bias = bias,
             kernel_size = tuple(cfg["kernel_size"]),
-            strides     = tuple(cfg["strides"]),
-            padding     = cfg.get("padding", "valid"),
-            activation  = cfg["activation"],
+            strides = tuple(cfg["strides"]),
+            padding = cfg.get("padding", "valid"),
+            activation = cfg["activation"],
         )
 
     if layer_type == "MaxPooling2D":
@@ -97,15 +97,22 @@ class CNNFromScratch:
         print(f"Model loaded: {len(model.layers)} layer aktif, {len(skipped)} di-skip {skipped}")
         return model
 
-    def predict(self, x):
-        out = np.asarray(x, dtype=np.float32)
-        for layer in self.layers:
-            out = layer.forward(out)
-        return out
+    def predict(self, x, batch_size=32):
+        x = np.asarray(x, dtype=np.float32)
+        single = x.ndim == 3
+        if single:
+            x = x[np.newaxis]
 
-    def predict_batch(self, X):
-        return np.array([self.predict(x) for x in X])
+        results = []
+        for i in range(0, len(x), batch_size):
+            batch = x[i:i + batch_size]
+            out = batch
+            for layer in self.layers:
+                out = layer.forward(out)
+            results.append(out)
 
-    def predict_classes(self, X):
-        probs = self.predict_batch(X)
-        return np.argmax(probs, axis=1)
+        out = np.concatenate(results, axis=0)
+        return out[0] if single else out
+
+    def predict_classes(self, X, batch_size=32):
+        return self.predict(X, batch_size=batch_size).argmax(axis=1)
