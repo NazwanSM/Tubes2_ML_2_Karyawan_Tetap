@@ -34,8 +34,6 @@ class SimpleRNNCell:
         return np.tanh(x @ self.W_x + h @ self.W_h + self.b)
 
     def zero_state(self, batch_size=1):
-        if batch_size == 1:
-            return np.zeros(self.units, dtype=np.float32)
         return np.zeros((batch_size, self.units), dtype=np.float32)
 
 class LSTMCell:
@@ -63,9 +61,6 @@ class LSTMCell:
         return h_new, c_new
 
     def zero_state(self, batch_size=1):
-        if batch_size == 1:
-            z = np.zeros(self.units, dtype=np.float32)
-            return z.copy(), z.copy()
         z = np.zeros((batch_size, self.units), dtype=np.float32)
         return z.copy(), z.copy()
 
