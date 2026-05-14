@@ -79,27 +79,29 @@ def grad_cam(keras_model, image, class_idx=None, last_conv_layer_name=None):
     if last_conv_layer_name is None:
         raise ValueError("Tidak ada Conv2D layer di model.")
 
-    grad_model = tf.keras.Model(
-        inputs = keras_model.inputs,
-        outputs = [
-            keras_model.get_layer(last_conv_layer_name).output,
-            keras_model.output,
-        ]
-    )
+    img_tensor = tf.cast(image, dtype=tf.float32)
 
     with tf.GradientTape() as tape:
-        conv_outputs, preds = grad_model(image)
+        conv_outputs = None
+        x = img_tensor
+        for layer in keras_model.layers:
+            x = layer(x)
+            if layer.name == last_conv_layer_name:
+                conv_outputs = x
+                tape.watch(conv_outputs)
+        preds = x
+
         if class_idx is None:
-            class_idx = int(np.argmax(preds[0]))
+            class_idx = int(np.argmax(preds[0].numpy()))
         score = preds[:, class_idx]
 
-    grads = tape.gradient(score, conv_outputs) # (1, H, W, C)
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)) # (C,)
+    grads = tape.gradient(score, conv_outputs)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)) 
 
-    conv_out = conv_outputs[0] # (H, W, C)
-    heatmap = conv_out @ pooled_grads[..., tf.newaxis] # (H, W, 1)
-    heatmap = tf.squeeze(heatmap).numpy() # (H, W)
-    heatmap = np.maximum(heatmap, 0) # ReLU
+    conv_out = conv_outputs[0]
+    heatmap = conv_out @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap).numpy()
+    heatmap = np.maximum(heatmap, 0)
     if heatmap.max() > 0:
         heatmap /= heatmap.max()
 
