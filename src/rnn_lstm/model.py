@@ -199,6 +199,65 @@ class CaptioningFromScratch:
 
         return [" ".join(idx2word.get(i, "<unk>") for i in ids) for ids in caption_ids]
 
+    # beam search decode 
+    def _beam_search_single(self, cnn_feature, word2idx, idx2word, max_len=50, k=5):
+        start_id = word2idx["<start>"]
+        end_id = word2idx["<end>"]
+        img_proj = self.proj_dense.forward(cnn_feature)
+
+        if self.arch == 'inject':
+            # Pre-inject
+            init_states = self._init_states(batch_size=1)
+            _, init_states = self._step(img_proj, init_states)
+        else:
+            init_states = self._init_states(batch_size=1)
+
+        # beam
+        beams = [(0.0, [], init_states)]
+        completed = []
+
+        for _ in range(max_len):
+            candidates = []
+
+            for log_score, tokens, states in beams:
+                current = tokens[-1] if tokens else start_id
+                x = self.embedding.forward(current)
+                x, new_states = self._step(x, states)
+
+                if self.arch == 'init_inject':
+                    x = x + img_proj
+
+                logits = self.output_dense.forward(x)
+                log_prob = np.log(np.maximum(logits, 1e-10))
+                top_k = np.argsort(log_prob)[-k:]
+
+                for tok in top_k:
+                    candidates.append((
+                        log_score + log_prob[tok],
+                        tokens + [int(tok)],
+                        new_states,
+                    ))
+
+            candidates.sort(key=lambda b: b[0] / max(len(b[1]), 1), reverse=True)
+
+            beams = []
+            for score, tokens, states in candidates:
+                if tokens[-1] == end_id:
+                    completed.append((score / max(len(tokens), 1), tokens[:-1]))
+                else:
+                    beams.append((score, tokens, states))
+                if len(beams) >= k:
+                    break
+
+            if not beams:
+                break
+
+        all_results = completed + [(s / max(len(t), 1), t) for s, t, _ in beams]
+        if not all_results:
+            return ""
+        _, best_tokens = max(all_results, key=lambda b: b[0])
+        return " ".join(idx2word.get(i, "<unk>") for i in best_tokens)
+
     # interface 
     def generate_caption(self, img_path, word2idx, idx2word, max_len=50):
         feature = self._extract_feature(img_path)
@@ -208,6 +267,9 @@ class CaptioningFromScratch:
         if self.arch == 'init_inject':
             return self._decode_init_inject(cnn_feature, word2idx, idx2word, max_len)
         return self._decode(cnn_feature, word2idx, idx2word, max_len)
+
+    def generate_from_feature_beam(self, cnn_feature, word2idx, idx2word, max_len=50, k=5):
+        return self._beam_search_single(cnn_feature, word2idx, idx2word, max_len, k)
 
     def generate_batch(self, cnn_features, word2idx, idx2word, max_len=50, batch_size=32):
         cnn_features = np.asarray(cnn_features, dtype=np.float32)
@@ -219,3 +281,9 @@ class CaptioningFromScratch:
             batch = cnn_features[i:i + batch_size]
             results.extend(decode_fn(batch, word2idx, idx2word, max_len))
         return results
+
+    def generate_batch_beam(self, cnn_features, word2idx, idx2word, max_len=50, k=5):
+        return [
+            self._beam_search_single(feat, word2idx, idx2word, max_len, k)
+            for feat in np.asarray(cnn_features, dtype=np.float32)
+        ]
