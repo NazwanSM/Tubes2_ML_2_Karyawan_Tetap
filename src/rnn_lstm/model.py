@@ -34,8 +34,8 @@ class CaptioningFromScratch:
         dense_layers = by_type.get("Dense", [])
         assert len(dense_layers) >= 2, "Minimal butuh 2 Dense: projection + output"
 
-        proj_keras = min(dense_layers, key=lambda l: l.output_shape[-1])
-        out_keras = max(dense_layers, key=lambda l: l.output_shape[-1])
+        proj_keras = min(dense_layers, key=lambda l: l.get_weights()[0].shape[-1])
+        out_keras  = max(dense_layers, key=lambda l: l.get_weights()[0].shape[-1])
 
         proj_k, proj_b = proj_keras.get_weights()
         proj_dense = DenseLayer(proj_k, proj_b, activation=None)
@@ -227,7 +227,7 @@ class CaptioningFromScratch:
                 if self.arch == 'init_inject':
                     x = x + img_proj
 
-                logits = self.output_dense.forward(x)
+                logits = np.asarray(self.output_dense.forward(x)).ravel()
                 log_prob = np.log(np.maximum(logits, 1e-10))
                 top_k = np.argsort(log_prob)[-k:]
 
