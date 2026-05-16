@@ -8,11 +8,11 @@ Implementasi **from-scratch** (NumPy) untuk dua tugas pembelajaran mesin:
 
 ## Anggota Kelompok
 
-| Nama | NIM | Tugas |
-|---|---|---|
-| Stanislaus Ardy Bramantyo | 18223057 | |
-| Nazwan Siddqi Muttaqin | 18223066 | |
-| Matthew Sebastian Kurniawan | 18223096 | |
+| No | Nama | NIM | Tugas |
+|---|---|---|---|
+| 1 | Stanislaus Ardy Bramantyo | 18223057 | Mengerjakan Laporan, Membuat Notebook CNN & RNN/LSTM |
+| 2 | Nazwan Siddqi Muttaqin | 18223066 | Mengerjakan Laporan, Melakukan training model, Membuat implementasi CNN, Memfinalisasi Notebook |
+| 3 | Matthew Sebastian Kurniawan | 18223096 | Mengerjakan Laporan, Membuat implementasi RNN & LSTM, Mengimplementasikan backward propagation, Mengimplementasikan beam search decoder, Mengimplementasikan init-inject captioning, Mengimplementasikan visualisasi feature map CNN dan Grad-CAM |
 
 ---
 
